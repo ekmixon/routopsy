@@ -40,73 +40,141 @@ def build_and_run_container():
     eigrp_vulnerable = False
     rip_vulnerable = False
 
-    for v_packet in vulnerable_eigrp_packets:
+    for _ in vulnerable_eigrp_packets:
         eigrp_vulnerable = True
 
-    for v_packet in vulnerable_ospf_packets:
+    for _ in vulnerable_ospf_packets:
         ospf_vulnerable = True
 
-    for v_packet in vulnerable_rip_packets:
+    for _ in vulnerable_rip_packets:
         rip_vulnerable = True
 
-    volumes = {'{}/daemons'.format(user_var.path):{'bind': '/etc/frr/daemons', 'mode': 'rw'}}
+    volumes = {
+        f'{user_var.path}/daemons': {'bind': '/etc/frr/daemons', 'mode': 'rw'}
+    }
+
 
     if ospf_vulnerable and 'ospf' in user_var.protocol:
-        ospf_volume = {'{}/{}_ospfd.conf'.format(user_var.path, user_var.target):{'bind': '/etc/frr/ospfd.conf', 'mode': 'rw'}}
-        volumes.update(ospf_volume)
+        ospf_volume = {
+            f'{user_var.path}/{user_var.target}_ospfd.conf': {
+                'bind': '/etc/frr/ospfd.conf',
+                'mode': 'rw',
+            }
+        }
+
+        volumes |= ospf_volume
 
     if eigrp_vulnerable and 'eigrp' in user_var.protocol:
-        eigrp_volume = {'{}/{}_eigrpd.conf'.format(user_var.path, user_var.target):{'bind': '/etc/frr/eigrpd.conf', 'mode': 'rw'}}
-        volumes.update(eigrp_volume)
+        eigrp_volume = {
+            f'{user_var.path}/{user_var.target}_eigrpd.conf': {
+                'bind': '/etc/frr/eigrpd.conf',
+                'mode': 'rw',
+            }
+        }
+
+        volumes |= eigrp_volume
 
     if rip_vulnerable and 'rip' in user_var.protocol:
-        rip_volume = {'{}/{}_ripd.conf'.format(user_var.path, user_var.target):{'bind': '/etc/frr/ripd.conf', 'mode': 'rw'}}
-        volumes.update(rip_volume)
+        rip_volume = {
+            f'{user_var.path}/{user_var.target}_ripd.conf': {
+                'bind': '/etc/frr/ripd.conf',
+                'mode': 'rw',
+            }
+        }
+
+        volumes |= rip_volume
 
     if user_var.inject or user_var.redirect:
-        volumes.update({'{}/{}_staticd.conf'.format(user_var.path, user_var.target):{'bind': '/etc/frr/staticd.conf', 'mode': 'rw'}})
-        volumes.update({'{}/{}_pbrd.conf'.format(user_var.path, user_var.target): {'bind': '/etc/frr/pbrd.conf', 'mode': 'rw'}})
-    
+        volumes[f'{user_var.path}/{user_var.target}_staticd.conf'] = {
+            'bind': '/etc/frr/staticd.conf',
+            'mode': 'rw',
+        }
+
+        volumes[f'{user_var.path}/{user_var.target}_pbrd.conf'] = {
+            'bind': '/etc/frr/pbrd.conf',
+            'mode': 'rw',
+        }
+
+
     if user_var.inject_local or user_var.redirect_local:
-        volumes.update({'{}/{}_zebra.conf'.format(user_var.path, user_var.target):{'bind': '/etc/frr/zebra.conf', 'mode': 'rw'}})
+        volumes[f'{user_var.path}/{user_var.target}_zebra.conf'] = {
+            'bind': '/etc/frr/zebra.conf',
+            'mode': 'rw',
+        }
+
 
     container = client.containers.run('frrouting/frr', name=docker_name, cap_add=\
     ['NET_ADMIN', 'NET_RAW', 'SYS_ADMIN'], detach=True, network='host',\
                           volumes=volumes)
-    
+
     if 'running' in client.containers.get(docker_name).status: 
-        print(Fore.CYAN + Style.BRIGHT + '[+]Created and running container {}'.format(container.name))
+        print(
+            Fore.CYAN
+            + Style.BRIGHT
+            + f'[+]Created and running container {container.name}'
+        )
+
     else:
-        print('Created container {}, but something happened and it wont run.'.format(container.name))
-        print('Logs from Docker:\n{}'.format(client.containers.get(docker_name).logs))
+        print(
+            f'Created container {container.name}, but something happened and it wont run.'
+        )
+
+        print(f'Logs from Docker:\n{client.containers.get(docker_name).logs}')
 
 def build_and_run_peer_container():
 
     docker_name = 'routopsy-peer-frr'
 
-    volumes = {'{}/daemons'.format(user_var.path):{'bind': '/etc/frr/daemons', 'mode': 'rw'}}
+    volumes = {
+        f'{user_var.path}/daemons': {'bind': '/etc/frr/daemons', 'mode': 'rw'}
+    }
+
 
     volume = None
 
     if 'ospf' in user_var.protocol:
-        volume = {'{}/{}_peer_ospfd.conf'.format(user_var.path, user_var.target):{'bind': '/etc/frr/ospfd.conf', 'mode': 'rw'}}
-        volumes.update(volume)
+        volume = {
+            f'{user_var.path}/{user_var.target}_peer_ospfd.conf': {
+                'bind': '/etc/frr/ospfd.conf',
+                'mode': 'rw',
+            }
+        }
+
+        volumes |= volume
 
     if 'rip' in user_var.protocol:
-        volume = {'{}/{}_peer_ripd.conf'.format(user_var.path, user_var.target):{'bind': '/etc/frr/ripd.conf', 'mode': 'rw'}}
-        volumes.update(volume)
+        volume = {
+            f'{user_var.path}/{user_var.target}_peer_ripd.conf': {
+                'bind': '/etc/frr/ripd.conf',
+                'mode': 'rw',
+            }
+        }
+
+        volumes |= volume
 
     if user_var.inject_local or user_var.redirect_local:
-        volumes.update({'{}/{}_peer_staticd.conf'.format(user_var.path, user_var.target):{'bind': '/etc/frr/staticd.conf', 'mode': 'rw'}})
+        volumes[f'{user_var.path}/{user_var.target}_peer_staticd.conf'] = {
+            'bind': '/etc/frr/staticd.conf',
+            'mode': 'rw',
+        }
+
 
     container = client.containers.run('frrouting/frr', name=docker_name, cap_add=\
     ['NET_ADMIN', 'NET_RAW', 'SYS_ADMIN'], detach=True, volumes=volumes)
-    
+
     if 'running' in client.containers.get(docker_name).status:
-        print(Fore.CYAN + Style.BRIGHT + '[+]Created and running container {}'.format(container.name))
+        print(
+            Fore.CYAN
+            + Style.BRIGHT
+            + f'[+]Created and running container {container.name}'
+        )
+
     else:
-        print('Created container {}, but something happened and it wont run.'.format(container.name))
-        print('Logs from Docker:\n{}'.format(client.containers.get(docker_name).logs))
+        print(
+            f'Created container {container.name}, but something happened and it wont run.'
+        )
+
+        print(f'Logs from Docker:\n{client.containers.get(docker_name).logs}')
 
 
 def build_and_run_container_vrrp():
@@ -114,18 +182,34 @@ def build_and_run_container_vrrp():
 
     vrrp_vulnerable = True
 
-    for v_packet in vulnerable_vrrp_packets:
+    for _ in vulnerable_vrrp_packets:
         vrrp_vulnerable = True
 
     if vrrp_vulnerable:
-        volume = {'{}/{}_keepalived.conf'.format(user_var.path, user_var.target):{'bind': '/usr/local/etc/keepalived/keepalived.conf', 'mode': 'rw'}}
+        volume = {
+            f'{user_var.path}/{user_var.target}_keepalived.conf': {
+                'bind': '/usr/local/etc/keepalived/keepalived.conf',
+                'mode': 'rw',
+            }
+        }
+
         container = client.containers.run(vrrp.docker_image, name=vrrp.docker_container_name, cap_add=vrrp.docker_capabilities, detach=True, network='host',volumes=volume)
 
         if 'running' in client.containers.get(vrrp.docker_container_name).status: 
-            print(Fore.CYAN + Style.BRIGHT + '[+]Created and running container {}'.format(container.name))
+            print(
+                Fore.CYAN
+                + Style.BRIGHT
+                + f'[+]Created and running container {container.name}'
+            )
+
         else:
-            print('Created container {}, but something happened and it wont run.'.format(container.name))
-            print('Logs from Docker:\n{}'.format(client.containers.get(vrrp.docker_container_name).logs))
+            print(
+                f'Created container {container.name}, but something happened and it wont run.'
+            )
+
+            print(
+                f'Logs from Docker:\n{client.containers.get(vrrp.docker_container_name).logs}'
+            )
 
 
 def run_ettercap_container_once():
@@ -140,14 +224,13 @@ def run_ettercap_container_once():
 
     time.sleep(1)
     output = container.logs()
-    outfile = open("/tmp/etter_hashes.txt", "w")
-    # outfile = open('{}/etter_hashes.txt'.format(user_var.path), 'w')
+    with open("/tmp/etter_hashes.txt", "w") as outfile:
+        # outfile = open('{}/etter_hashes.txt'.format(user_var.path), 'w')
 
-    for line in output.strip().decode().splitlines():
-        outfile.write(line)
-        outfile.write('\n')
+        for line in output.strip().decode().splitlines():
+            outfile.write(line)
+            outfile.write('\n')
 
-    outfile.close()
     container.stop()
     container.remove()
 

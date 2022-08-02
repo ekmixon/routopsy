@@ -78,7 +78,8 @@ def iptablesDNAT(action, user_var):
     for cidr in user_var.redirectaddresses:
 
         redirectNetworks = ipaddress.ip_network(cidr)
-        match.dst_range = '{}-{}'.format(redirectNetworks.network_address, redirectNetworks.broadcast_address)
+        match.dst_range = f'{redirectNetworks.network_address}-{redirectNetworks.broadcast_address}'
+
 
         rule.add_match(match)
         t = rule.create_target("DNAT")
@@ -145,17 +146,15 @@ def editRoutes(cidr_network, gateway, action):
                     # print("deleting None network {} mask {}".format(ip_and_cidr[0], ip_and_cidr[1]))
                     ip.route("delete", dst=ip_and_cidr[0], mask=int(ip_and_cidr[1]))
 
+            elif action == 'add':
+                # print("adding network {} mask {} gateway {}".format(ip_and_cidr[0], ip_and_cidr[1],\
+                # gateway[count]))
+                ip.route("add", dst=ip_and_cidr[0], mask=int(ip_and_cidr[1]), gateway=gateway[count])
             else:
-                if action == 'add':
-                    # print("adding network {} mask {} gateway {}".format(ip_and_cidr[0], ip_and_cidr[1],\
-                    # gateway[count]))
-                    ip.route("add", dst=ip_and_cidr[0], mask=int(ip_and_cidr[1]), gateway=gateway[count])
-                else:
-                    # print("deleting network {} mask {} gateway {}".format(ip_and_cidr[0], ip_and_cidr[1],\
-                    # gateway[count]))
-                    ip.route("delete", dst=ip_and_cidr[0], mask=int(ip_and_cidr[1]), gateway=gateway[count])
+                # print("deleting network {} mask {} gateway {}".format(ip_and_cidr[0], ip_and_cidr[1],\
+                # gateway[count]))
+                ip.route("delete", dst=ip_and_cidr[0], mask=int(ip_and_cidr[1]), gateway=gateway[count])
 
-        ## FIXME
         except:
             print('invalid IP')
 
@@ -163,8 +162,8 @@ def editRoutes(cidr_network, gateway, action):
             count += 1
 
 def edit_specific_route(destination, gateway, netmask, action):
-    if action == 'del' or action == 'add':
-        
+    if action in ['del', 'add']:
+
         ip = IPRoute()
         ip.route(action, dst=destination, mask=int(netmask_to_cidr(netmask)), gateway=gateway)
     
@@ -173,22 +172,14 @@ def edit_specific_route(destination, gateway, netmask, action):
 def check_if_valid_ipaddress_with_cidr(ip_cidr):
     if re.match(ip_cidr_regex, ip_cidr):
         return True
-    else:
-        print('Invalid IP address provided: {}'.format(ip_cidr))
-        return False
+    print(f'Invalid IP address provided: {ip_cidr}')
+    return False
 
 def check_if_valid_ipaddress(ip):
-    if re.match(ip_regex, ip):
-        return True
-    else:
-        return False
+    return bool(re.match(ip_regex, ip))
 
 def check_if_interface_exists(interface_name):
-    exists = False
-    for name in netifaces.interfaces():
-        if interface_name == name:
-            exists = True
-    return exists
+    return any(interface_name == name for name in netifaces.interfaces())
 
 def compare_routing_tables(cidr, gateway, cidr2, gateway2):
 
@@ -205,7 +196,7 @@ def extract_hashes_from_ettercap_output():
 
     # TODO could be a different path here
 
-    for i, line in enumerate(open('/tmp/etter_hashes.txt')):
+    for line in open('/tmp/etter_hashes.txt'):
     # for i, line in enumerate(open('{}/etter_hashes.txt'.format(user_var.path))):
         for match in re.finditer(pattern, line):
             print(match.group())
@@ -215,6 +206,4 @@ def get_interface_netmask(interface):
     return netifaces.ifaddresses(interface)[netifaces.AF_INET][0]['netmask']
 
 def check_if_interface_exists(interface):
-    if interface in netifaces.interfaces():
-        return True
-    return False
+    return interface in netifaces.interfaces()

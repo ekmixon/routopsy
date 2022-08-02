@@ -1,7 +1,5 @@
 def get_data_from_ospf_header(packet):
-    areaId = packet['OSPF Header'].area
-
-    return areaId
+    return packet['OSPF Header'].area
 
 
 def get_data_from_layer_two_and_three(packet):
